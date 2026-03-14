@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinePrompt — Node Canvas</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  /* Warm theme inspired by Lumo Studios */
+  --bg:#f0ebe3;--dots:rgba(180,168,150,0.3);
+  --node-bg:#faf8f5;--node-border:#ddd5c9;--node-border-hover:#c4b8a8;
+  --text:#2d2418;--text-sec:#6b5e4f;--text-dim:#9c8f7e;
+  --accent:#c47a2a;--accent-h:#d4923e;--accent-glow:rgba(196,122,42,0.12);
+  --amber:#c47a2a;--green:#6b8f5e;--red:#b85450;--purple:#8b7355;--cyan:#7a9a8a;--pink:#b8806a;
+  --radius:10px;--radius-sm:6px;
+  --topbar-bg:rgba(240,235,227,0.9);
+  --shadow-node:0 2px 16px rgba(45,36,24,0.08);
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+
+/* ===== TOP BAR ===== */
+.topbar{position:fixed;top:0;left:0;right:0;height:48px;background:var(--topbar-bg);backdrop-filter:blur(12px);border-bottom:1px solid var(--node-border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;z-index:100;}
+.topbar-left{display:flex;align-items:center;gap:10px;}
+.topbar-logo{width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,#c47a2a,#8b6f47);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;}
+.topbar h1{font-size:15px;font-weight:600;letter-spacing:-0.3px;color:var(--text);}
+.topbar-right{display:flex;gap:8px;align-items:center;}
+.tb-btn{padding:5px 14px;border-radius:16px;border:1px solid var(--node-border);background:transparent;color:var(--text-sec);font-size:12px;cursor:pointer;transition:0.15s;font-family:'Inter',sans-serif;}
+.tb-btn:hover{border-color:var(--accent);color:var(--accent);}
+.tb-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+.tb-btn.primary:hover{background:var(--accent-h);}
+
+/* ===== CANVAS ===== */
+#canvas{position:fixed;top:48px;left:0;right:0;bottom:0;overflow:hidden;cursor:grab;}
+#canvas.grabbing{cursor:grabbing;}
+#world{position:absolute;transform-origin:0 0;}
+
+/* Dot grid — warm tone */
+#canvas{background-image:radial-gradient(circle,var(--dots) 1px,transparent 1px);background-size:24px 24px;background-color:var(--bg);}
+
+/* ===== SVG CONNECTIONS ===== */
+#connections{position:absolute;top:0;left:0;pointer-events:none;overflow:visible;}
+#connections line,#connections path{stroke:var(--node-border);stroke-width:2;fill:none;}
+.conn-active{stroke:var(--accent)!important;stroke-width:2!important;opacity:0.6;}
+
+/* ===== NODES ===== */
+.node{position:absolute;background:var(--node-bg);border:1px solid var(--node-border);border-radius:var(--radius);min-width:260px;min-height:120px;box-shadow:var(--shadow-node);transition:box-shadow 0.2s,border-color 0.2s;user-select:none;overflow:hidden;}
+.node:hover{border-color:var(--node-border-hover);}
+.node.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow),var(--shadow-node);}
+.node-header{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:grab;border-bottom:1px solid rgba(0,0,0,0.04);background:rgba(0,0,0,0.015);}
+.node-header:active{cursor:grabbing;}
+.node-id{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--text-dim);letter-spacing:0.5px;}
+.node-badge{padding:1px 8px;border-radius:10px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;}
+.badge-source{background:rgba(196,122,42,0.12);color:var(--accent);}
+.badge-analysis{background:rgba(107,143,94,0.12);color:var(--green);}
+.badge-prompt{background:rgba(139,115,85,0.15);color:var(--purple);}
+.badge-camera{background:rgba(196,122,42,0.12);color:var(--amber);}
+.badge-library{background:rgba(184,128,106,0.15);color:var(--pink);}
+.node-body{padding:14px;font-size:13px;line-height:1.7;overflow-y:auto;}
+.node-title{font-size:14px;font-weight:600;margin-bottom:6px;color:var(--text);}
+.node-content{color:var(--text-sec);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;overflow-y:auto;scrollbar-width:thin;}
+.node-content b,.node-content strong{color:var(--accent);font-weight:600;}
+.node-content::-webkit-scrollbar{width:4px;}
+.node-content::-webkit-scrollbar-thumb{background:var(--node-border);border-radius:2px;}
+
+/* Prompt node special */
+.prompt-block{background:rgba(196,122,42,0.04);border:1px solid rgba(196,122,42,0.15);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-word;position:relative;}
+.prompt-label{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:inline-block;padding:1px 6px;border-radius:8px;}
+.pl-1{background:rgba(196,122,42,0.12);color:var(--accent);}
+.pl-2{background:rgba(139,115,85,0.15);color:var(--purple);}
+.pl-3{background:rgba(184,128,106,0.15);color:var(--pink);}
+
+/* Shot-on tag */
+.shot-on-tag{display:inline-block;background:rgba(196,122,42,0.1);border:1px solid rgba(196,122,42,0.25);border-radius:4px;padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);margin-top:4px;}
+
+/* Node actions */
+.node-actions{display:flex;gap:4px;padding:8px 14px;border-top:1px solid rgba(0,0,0,0.04);}
+.na-btn{padding:3px 10px;border-radius:12px;border:1px solid var(--node-border);background:transparent;color:var(--text-sec);font-size:10px;cursor:pointer;transition:0.15s;font-family:'Inter',sans-serif;}
+.na-btn:hover{border-color:var(--accent);color:var(--accent);}
+.na-btn.save-btn:hover{border-color:var(--amber);color:var(--amber);}
+.na-btn.del-btn:hover{border-color:var(--red);color:var(--red);}
+
+/* Connection anchor dots */
+.anchor{position:absolute;width:8px;height:8px;border-radius:50%;background:var(--node-border);border:2px solid var(--node-bg);transition:0.15s;z-index:2;}
+.anchor:hover{background:var(--accent);transform:scale(1.4);}
+.anchor-right{right:-4px;top:50%;}
+.anchor-left{left:-4px;top:50%;}
+
+/* ===== RESIZE HANDLE ===== */
+.resize-handle{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;z-index:5;opacity:0;transition:opacity 0.15s;}
+.node:hover .resize-handle{opacity:1;}
+.resize-handle::before{content:'';position:absolute;right:4px;bottom:4px;width:8px;height:8px;border-right:2px solid var(--text-dim);border-bottom:2px solid var(--text-dim);opacity:0.5;}
+
+/* ===== SOURCE NODE (upload) ===== */
+.upload-zone{border:2px dashed var(--node-border);border-radius:var(--radius-sm);padding:24px 16px;text-align:center;cursor:pointer;transition:0.15s;margin:0;color:var(--text-dim);font-size:12px;}
+.upload-zone:hover{border-color:var(--accent);color:var(--text-sec);}
+.upload-zone img{max-width:100%;max-height:180px;border-radius:var(--radius-sm);object-fit:contain;display:block;margin:0 auto;}
+.analyze-trigger{width:100%;padding:8px;border:none;border-radius:var(--radius-sm);background:linear-gradient(135deg,#c47a2a,#8b6f47);color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:0.15s;margin-top:8px;font-family:'Inter',sans-serif;}
+.analyze-trigger:disabled{opacity:0.3;cursor:not-allowed;}
+.analyze-trigger:not(:disabled):hover{filter:brightness(1.1);}
+.spinner-sm{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;margin-right:6px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ===== LIBRARY PANEL ===== */
+.lib-panel{position:fixed;top:48px;right:0;width:340px;height:calc(100% - 48px);background:rgba(250,248,245,0.97);backdrop-filter:blur(12px);border-left:1px solid var(--node-border);transform:translateX(100%);transition:transform 0.3s ease;z-index:90;display:flex;flex-direction:column;}
+.lib-panel.open{transform:translateX(0);}
+.lib-header{padding:16px;border-bottom:1px solid var(--node-border);display:flex;justify-content:space-between;align-items:center;}
+.lib-header h3{font-size:14px;font-weight:600;color:var(--text);}
+.lib-actions-top{display:flex;gap:6px;align-items:center;}
+.lib-close{background:none;border:none;color:var(--text-sec);font-size:18px;cursor:pointer;padding:4px 8px;}
+.lib-close:hover{color:var(--text);}
+.lib-import-btn{background:none;border:1px solid var(--node-border);color:var(--text-sec);font-size:11px;padding:3px 10px;border-radius:12px;cursor:pointer;transition:0.15s;font-family:'Inter',sans-serif;}
+.lib-import-btn:hover{border-color:var(--accent);color:var(--accent);}
+.lib-list{flex:1;overflow-y:auto;padding:12px;}
+
+/* Library category sections */
+.lib-cat-section{margin-bottom:16px;}
+.lib-cat-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);padding:6px 4px 8px;border-bottom:1px solid rgba(0,0,0,0.05);margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.lib-cat-count{font-size:9px;background:rgba(0,0,0,0.05);padding:1px 6px;border-radius:8px;font-weight:500;}
+
+.lib-item{background:var(--node-bg);border:1px solid var(--node-border);border-radius:var(--radius-sm);padding:12px;margin-bottom:8px;transition:0.15s;cursor:pointer;}
+.lib-item:hover{border-color:var(--node-border-hover);box-shadow:0 2px 8px rgba(45,36,24,0.06);}
+.lib-item-name{font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text);}
+.lib-item-cat{font-size:9px;padding:1px 6px;border-radius:8px;display:inline-block;margin-bottom:6px;}
+.lib-item-content{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);line-height:1.5;max-height:60px;overflow:hidden;white-space:pre-wrap;word-break:break-word;}
+.lib-item-actions{display:flex;gap:4px;margin-top:8px;}
+.lib-item-actions button{padding:2px 8px;border-radius:10px;border:1px solid var(--node-border);background:transparent;color:var(--text-sec);font-size:10px;cursor:pointer;transition:0.15s;font-family:'Inter',sans-serif;}
+.lib-item-actions button:hover{border-color:var(--accent);color:var(--accent);}
+.lib-empty{text-align:center;color:var(--text-dim);font-size:12px;padding:40px 20px;}
+
+/* ===== SETTINGS MODAL ===== */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(45,36,24,0.35);z-index:200;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--node-bg);border:1px solid var(--node-border);border-radius:var(--radius);padding:24px;width:90%;max-width:480px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 40px rgba(45,36,24,0.15);}
+.modal h3{font-size:15px;font-weight:600;margin-bottom:16px;color:var(--text);}
+.fg{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;}
+.fg label{font-size:10px;font-weight:500;color:var(--text-sec);text-transform:uppercase;letter-spacing:0.5px;}
+.fg input,.fg select,.fg textarea{padding:8px 12px;background:rgba(0,0,0,0.02);border:1px solid var(--node-border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;outline:none;transition:0.15s;font-family:'JetBrains Mono',monospace;}
+.fg select{font-family:'Inter',sans-serif;cursor:pointer;}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow);}
+.fg textarea{resize:vertical;min-height:80px;}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;}
+.provider-tabs{display:flex;gap:6px;margin-bottom:14px;}
+.ptab{padding:4px 14px;border-radius:14px;border:1px solid var(--node-border);background:transparent;color:var(--text-sec);font-size:12px;cursor:pointer;transition:0.15s;font-family:'Inter',sans-serif;}
+.ptab.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+/* ===== TOAST ===== */
+.toast{position:fixed;bottom:20px;right:20px;padding:10px 20px;background:var(--green);color:#fff;border-radius:var(--radius-sm);font-size:12px;font-weight:500;opacity:0;transform:translateY(8px);transition:0.3s;z-index:300;}
+.toast.show{opacity:1;transform:translateY(0);}
+.toast.error{background:var(--red);}
+
+/* ===== ZOOM INDICATOR ===== */
+.zoom-info{position:fixed;bottom:16px;left:16px;font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;z-index:50;}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+    <div class="topbar-left">
+        <div class="topbar-logo">C</div>
+        <h1>CinePrompt</h1>
+    </div>
+    <div class="topbar-right">
+        <button class="tb-btn" id="btnSettings">⚙ API</button>
+        <button class="tb-btn" id="btnLibrary">风格库</button>
+        <button class="tb-btn" id="btnReset">重置画布</button>
+        <button class="tb-btn" id="btnExport">导出 JSON</button>
+    </div>
+</div>
+
+<!-- CANVAS -->
+<div id="canvas">
+    <svg id="connections"></svg>
+    <div id="world"></div>
+</div>
+<div class="zoom-info" id="zoomInfo">100%</div>
+
+<!-- LIBRARY PANEL -->
+<div class="lib-panel" id="libPanel">
+    <div class="lib-header">
+        <h3>风格库</h3>
+        <div class="lib-actions-top">
+            <button class="lib-import-btn" id="libImport">导入</button>
+            <button class="lib-close" id="libClose">✕</button>
+        </div>
+    </div>
+    <div class="lib-list" id="libList"></div>
+</div>
+<input type="file" id="importInput" accept=".json" hidden>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay" id="settingsModal">
+    <div class="modal">
+        <h3>API 配置</h3>
+        <div class="provider-tabs"><button class="ptab active" data-p="gemini">Gemini</button><button class="ptab" data-p="byteplus">BytePlus</button></div>
+        <div id="geminiForm">
+            <div class="fg"><label>API Key</label><input type="password" id="geminiKey" placeholder="AIza..."></div>
+            <div class="fg"><label>模型</label><select id="geminiModel"><option value="gemini-2.5-flash">Gemini 2.5 Flash</option><option value="gemini-2.5-pro">Gemini 2.5 Pro</option><option value="gemini-2.0-flash">Gemini 2.0 Flash</option></select></div>
+        </div>
+        <div id="byteplusForm" style="display:none">
+            <div class="fg"><label>API Key</label><input type="password" id="byteplusKey" placeholder="sk-..."></div>
+            <div class="fg"><label>Endpoint</label><input type="text" id="byteplusEp" placeholder="ep-xxx"></div>
+        </div>
+        <div class="fg"><label>输出语言</label><select id="outputLang"><option value="en">English</option><option value="zh">中文</option><option value="both">双语</option></select></div>
+        <div class="modal-actions"><button class="tb-btn" id="settingsCancel">取消</button><button class="tb-btn primary" id="settingsSave">保存</button></div>
+    </div>
+</div>
+
+<!-- SAVE TO LIBRARY MODAL -->
+<div class="modal-overlay" id="saveModal">
+    <div class="modal">
+        <h3 id="saveModalTitle">存入风格库</h3>
+        <div class="fg"><label>名称</label><input type="text" id="saveName" placeholder="如: Blade Runner 色调"></div>
+        <div class="fg"><label>分类</label><select id="saveCat"><option value="camera">📷 摄影机/镜头</option><option value="lighting">💡 灯光</option><option value="color">🎨 色调</option><option value="atmosphere">🌫 氛围</option><option value="full">📋 完整提示词</option></select></div>
+        <div class="fg"><label>内容</label><textarea id="saveContent"></textarea></div>
+        <div class="modal-actions"><button class="tb-btn" id="saveCancel">取消</button><button class="tb-btn primary" id="saveConfirm">保存</button></div>
+    </div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" hidden>
+
+<script>
+// ============================================================
+// CINEPROMPT NODE CANVAS — Warm Theme + Resizable + Categorized Library
+// ============================================================
+
+// ----- SYSTEM PROMPT -----
+const SYS = `You are an expert Cinematographer and Film Analyst. Deconstruct film stills into precise, reproducible AI image generation prompts.
+
+RULES: ENGLISH ONLY (unless requested). NO HEDGING. NO BRAND NAMES in analysis text (but USE specific camera/lens model names in shot_on_tag and prompts). SPATIAL RELATIONSHIPS ARE KING.
+
+CAMERA/LENS DB:
+Digital: ARRI Alexa 65/Mini LF/LF/Mini, RED V-Raptor/Monstro/Komodo, Sony Venice 2/Venice, Blackmagic URSA 12K
+Film: ARRIFLEX 435/235, ARRICAM LT, Panavision Millennium XL2/Platinum
+Lenses: ARRI Signature Prime, Cooke S4/i, Cooke Anamorphic/i, Zeiss Supreme/Master Prime, Leica Summilux-C/Thalia, Panavision Primo/Ultra Panatar, Angenieux Optimo, Canon K-35, Zeiss Super Speed, Cooke Panchro, Atlas Orion, Laowa Probe
+
+Match camera by: sensor size cues, color science, DR behavior. Match lens by: bokeh shape, flare, sharpness, anamorphic traits.
+
+OUTPUT: strict JSON with these keys:
+{
+  "narrative":"...",
+  "spatial_breakdown":{"foreground":"...","midground":"...","background":"...","depth_cues":"...","zone_description":"..."},
+  "pillar_composition":{"perspective":"...","shot_size":"...","angle":"...","balance":"...","leading_lines":"..."},
+  "pillar_lighting":{"luminance_contrast":"...","direction_source":"...","color_temperature":"...","quality":"...","special_notes":"..."},
+  "pillar_optics":{"focal_length":"...","depth_of_field":"...","lens_character":"...","format":"..."},
+  "camera_lens_match":{"camera_body":"...","camera_reasoning":"...","lens":"...","lens_reasoning":"...","focal_length":"...","aperture":"...","film_stock":"...","shot_on_tag":"...","alternative_match":"..."},
+  "material_texture":{"surfaces":"...","atmosphere":"...","color_grading":"..."},
+  "prompts":{"level_1":"Must start with shot on [Camera],[Lens]. 2-3 sentences.","level_2":"Detailed paragraph with shot on tag.","level_3":"Professional multi-line with full specs."}
+}
+
+PROMPT RULE: ALWAYS begin with "shot on [Camera], [Lens] [mm], [aperture]". No "4K,HD" tags.`;
+
+// ----- STATE -----
+let nodes = [];
+let connections = [];
+let nextId = 1;
+let imgData = null, imgMime = null;
+let pan = {x:0,y:0}, zoom = 1;
+let dragging = null, dragOff = {x:0,y:0};
+let panning = false, panStart = {x:0,y:0}, panOrig = {x:0,y:0};
+let resizing = null; // {nodeId, startX, startY, startW, startH}
+let provider = 'gemini';
+
+const world = document.getElementById('world');
+const canvas = document.getElementById('canvas');
+const connSvg = document.getElementById('connections');
+const zoomInfo = document.getElementById('zoomInfo');
+
+// ----- CANVAS PAN & ZOOM -----
+canvas.addEventListener('pointerdown', e => {
+    if(e.target === canvas || e.target === connSvg) {
+        panning = true; panStart = {x:e.clientX, y:e.clientY}; panOrig = {...pan};
+        canvas.classList.add('grabbing'); e.preventDefault();
+    }
+});
+window.addEventListener('pointermove', e => {
+    if(panning) {
+        pan.x = panOrig.x + (e.clientX - panStart.x);
+        pan.y = panOrig.y + (e.clientY - panStart.y);
+        applyTransform();
+    }
+    if(dragging) {
+        const n = nodes.find(n=>n.id===dragging);
+        if(n){
+            n.x = (e.clientX - pan.x)/zoom - dragOff.x;
+            n.y = (e.clientY - pan.y)/zoom - dragOff.y;
+            positionNode(n);
+            drawConnections();
+        }
+    }
+    if(resizing) {
+        e.preventDefault();
+        const n = nodes.find(n=>n.id===resizing.nodeId);
+        if(n && n.el) {
+            const dx = (e.clientX - resizing.startX) / zoom;
+            const dy = (e.clientY - resizing.startY) / zoom;
+            const newW = Math.max(240, resizing.startW + dx);
+            const newH = Math.max(120, resizing.startH + dy);
+            n.el.style.width = newW + 'px';
+            n.el.style.height = newH + 'px';
+            drawConnections();
+        }
+    }
+});
+window.addEventListener('pointerup', () => {
+    panning=false; dragging=null; resizing=null;
+    canvas.classList.remove('grabbing');
+});
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const oldZoom = zoom;
+    zoom *= e.deltaY < 0 ? 1.08 : 0.92;
+    zoom = Math.max(0.25, Math.min(2, zoom));
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    pan.x = mx - (mx - pan.x) * (zoom / oldZoom);
+    pan.y = my - (my - pan.y) * (zoom / oldZoom);
+    applyTransform();
+    zoomInfo.textContent = Math.round(zoom*100)+'%';
+}, {passive:false});
+
+function applyTransform() {
+    world.style.transform = `translate(${pan.x}px,${pan.y}px) scale(${zoom})`;
+    connSvg.style.transform = `translate(${pan.x}px,${pan.y}px) scale(${zoom})`;
+}
+
+// ----- NODE SYSTEM -----
+function createNode(cfg) {
+    const id = nextId++;
+    const n = {id, type:cfg.type||'analysis', title:cfg.title||'', badge:cfg.badge||'', badgeClass:cfg.badgeClass||'badge-analysis',
+               content:cfg.content||'', x:cfg.x||100, y:cfg.y||100, el:null, rawData:cfg.rawData||null, section:cfg.section||''};
+    nodes.push(n);
+    renderNode(n);
+    return n;
+}
+
+function renderNode(n) {
+    const div = document.createElement('div');
+    div.className = 'node';
+    div.dataset.id = n.id;
+
+    let bodyHTML = '';
+    if(n.type === 'source') {
+        bodyHTML = `<div class="upload-zone" id="uploadZone"><div id="uploadPlaceholder">📷 拖拽电影截图<br>或点击上传</div><img id="previewImg" style="display:none"></div>
+        <button class="analyze-trigger" id="analyzeBtn" disabled><span id="btnText">拆解镜头</span><span id="btnLoading" style="display:none"><span class="spinner-sm"></span>分析中...</span></button>`;
+    } else {
+        bodyHTML = `<div class="node-title">${n.title}</div><div class="node-content">${n.content}</div>`;
+    }
+
+    let actionsHTML = '';
+    if(n.type !== 'source') {
+        actionsHTML = `<div class="node-actions">
+            <button class="na-btn" onclick="copyNodeContent(${n.id})">复制</button>
+            <button class="na-btn save-btn" onclick="saveNodeToLib(${n.id})">存入风格库</button>
+            <button class="na-btn del-btn" onclick="removeNode(${n.id})">移除</button>
+        </div>`;
+    }
+
+    div.innerHTML = `<div class="node-header" data-drag="${n.id}"><span class="node-id">${n.type==='source'?'SRC':'NOD'}-${String(n.id).padStart(3,'0')}</span><span class="node-badge ${n.badgeClass}">${n.badge}</span></div>
+    <div class="node-body">${bodyHTML}</div>${actionsHTML}
+    <div class="anchor anchor-right" data-anchor-out="${n.id}"></div>
+    <div class="anchor anchor-left" data-anchor-in="${n.id}"></div>
+    <div class="resize-handle" data-resize="${n.id}"></div>`;
+
+    world.appendChild(div);
+    n.el = div;
+    positionNode(n);
+
+    // Drag header
+    const header = div.querySelector('[data-drag]');
+    header.addEventListener('pointerdown', e => {
+        e.stopPropagation();
+        dragging = n.id;
+        dragOff.x = (e.clientX - pan.x)/zoom - n.x;
+        dragOff.y = (e.clientY - pan.y)/zoom - n.y;
+    });
+
+    // Resize handle
+    const rh = div.querySelector('[data-resize]');
+    if(rh) {
+        rh.addEventListener('pointerdown', e => {
+            e.stopPropagation();
+            e.preventDefault();
+            resizing = {
+                nodeId: n.id,
+                startX: e.clientX,
+                startY: e.clientY,
+                startW: div.offsetWidth,
+                startH: div.offsetHeight
+            };
+        });
+    }
+
+    // Source node events
+    if(n.type === 'source') {
+        const zone = div.querySelector('#uploadZone');
+        zone.addEventListener('click', () => document.getElementById('fileInput').click());
+        zone.addEventListener('dragover', e => {e.preventDefault(); zone.style.borderColor='var(--accent)';});
+        zone.addEventListener('dragleave', () => zone.style.borderColor='');
+        zone.addEventListener('drop', e => {e.preventDefault(); zone.style.borderColor=''; const f=e.dataTransfer.files[0]; if(f) loadImage(f);});
+        div.querySelector('#analyzeBtn').addEventListener('click', runAnalysis);
+    }
+}
+
+function positionNode(n) {
+    if(n.el) { n.el.style.left = n.x+'px'; n.el.style.top = n.y+'px'; }
+}
+
+function addConnection(fromId, toId) {
+    connections.push({from:fromId, to:toId});
+    drawConnections();
+}
+
+function drawConnections() {
+    let svg = '';
+    connections.forEach(c => {
+        const fn = nodes.find(n=>n.id===c.from);
+        const tn = nodes.find(n=>n.id===c.to);
+        if(!fn||!tn||!fn.el||!tn.el) return;
+        const fw = fn.el.offsetWidth, fh = fn.el.offsetHeight;
+        const tw = tn.el.offsetWidth, th = tn.el.offsetHeight;
+        const x1 = fn.x + fw, y1 = fn.y + fh/2;
+        const x2 = tn.x, y2 = tn.y + th/2;
+        const cx = Math.abs(x2-x1)*0.45;
+        svg += `<path d="M${x1},${y1} C${x1+cx},${y1} ${x2-cx},${y2} ${x2},${y2}" class="conn-active"/>`;
+    });
+    connSvg.innerHTML = svg;
+}
+
+// ----- IMAGE HANDLING -----
+document.getElementById('fileInput').addEventListener('change', e => { if(e.target.files[0]) loadImage(e.target.files[0]); e.target.value=''; });
+
+function loadImage(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+        imgData = e.target.result.split(',')[1];
+        imgMime = file.type;
+        const img = document.getElementById('previewImg');
+        const ph = document.getElementById('uploadPlaceholder');
+        if(img && ph){ img.src=e.target.result; img.style.display='block'; ph.style.display='none'; }
+        const btn = document.getElementById('analyzeBtn');
+        if(btn) btn.disabled = false;
+    };
+    reader.readAsDataURL(file);
+}
+
+// ----- ANALYSIS -----
+async function runAnalysis() {
+    if(!imgData) return;
+    const config = JSON.parse(localStorage.getItem('cineprompt_config')||'{}');
+    const prov = config.provider||'gemini';
+    if(prov==='gemini'&&!config.geminiKey){toast('请先配置 API Key','error');return;}
+    if(prov==='byteplus'&&!config.byteplusKey){toast('请先配置 BytePlus','error');return;}
+
+    const btn=document.getElementById('analyzeBtn');
+    const btnT=document.getElementById('btnText');
+    const btnL=document.getElementById('btnLoading');
+    btn.disabled=true; btnT.style.display='none'; btnL.style.display='inline';
+
+    // Remove old analysis nodes
+    const oldAnalysis = nodes.filter(n=>n.type!=='source');
+    oldAnalysis.forEach(n=>{if(n.el)n.el.remove();});
+    nodes = nodes.filter(n=>n.type==='source');
+    connections = [];
+    drawConnections();
+
+    try {
+        const lang = config.outputLang==='zh'?'\n\nWrite ALL in Chinese. Camera/lens names in English.':config.outputLang==='both'?'\n\nAnalysis in Chinese. Prompts in English with Chinese translation.':'';
+        let result;
+        if(prov==='gemini') result = await callGemini(config, lang);
+        else result = await callByteplus(config, lang);
+
+        spawnResultNodes(result);
+    } catch(err) { console.error(err); toast('分析失败: '+err.message,'error'); }
+    finally { btn.disabled=false; btnT.style.display='inline'; btnL.style.display='none'; }
+}
+
+function spawnResultNodes(d) {
+    const src = nodes.find(n=>n.type==='source');
+    const sx = src?src.x:100, sy = src?src.y:100;
+    const col1 = sx+340, col2 = sx+720, col3 = sx+1100;
+
+    // Column 1
+    const n1 = createNode({type:'analysis',title:'🎬 叙事描述',badge:'NARRATIVE',badgeClass:'badge-analysis',content:d.narrative||'',x:col1,y:sy-60,rawData:d.narrative,section:'narrative'});
+    addConnection(src.id,n1.id);
+
+    const cam=d.camera_lens_match||{};
+    let camContent = '';
+    if(cam.camera_body) camContent+=`<b>📷 ${cam.camera_body}</b>\n${cam.camera_reasoning||''}\n\n`;
+    if(cam.lens) camContent+=`<b>🔭 ${cam.lens}</b>\n${cam.lens_reasoning||''}\n\n`;
+    if(cam.shot_on_tag) camContent+=`<span class="shot-on-tag">${cam.shot_on_tag}</span>\n\n`;
+    if(cam.alternative_match) camContent+=`<b>备选:</b> ${cam.alternative_match}`;
+    const n2 = createNode({type:'analysis',title:'📷 摄影机 & 镜头',badge:'CAMERA',badgeClass:'badge-camera',content:camContent,x:col1,y:sy+240,rawData:cam.shot_on_tag||'',section:'camera'});
+    addConnection(src.id,n2.id);
+
+    // Column 2
+    const sp=d.spatial_breakdown||{};
+    let spC='';
+    if(sp.foreground) spC+=`<b>前景</b> ${sp.foreground}\n\n`;
+    if(sp.midground) spC+=`<b>中景</b> ${sp.midground}\n\n`;
+    if(sp.background) spC+=`<b>背景</b> ${sp.background}\n\n`;
+    if(sp.zone_description) spC+=`<b>分区</b> ${sp.zone_description}`;
+    const n3 = createNode({type:'analysis',title:'📐 空间层次',badge:'SPATIAL',badgeClass:'badge-analysis',content:spC,x:col2,y:sy-120,rawData:Object.values(sp).filter(Boolean).join('\n'),section:'spatial'});
+    addConnection(n1.id,n3.id);
+
+    const p2=d.pillar_lighting||{};
+    let ltC='';
+    if(p2.direction_source) ltC+=`<b>方向</b> ${p2.direction_source}\n\n`;
+    if(p2.color_temperature) ltC+=`<b>色温</b> ${p2.color_temperature}\n\n`;
+    if(p2.quality) ltC+=`<b>光质</b> ${p2.quality}\n\n`;
+    if(p2.special_notes) ltC+=`<b>特殊</b> ${p2.special_notes}`;
+    const n4 = createNode({type:'analysis',title:'💡 灯光',badge:'LIGHTING',badgeClass:'badge-analysis',content:ltC,x:col2,y:sy+160,rawData:Object.values(p2).filter(Boolean).join('\n'),section:'lighting'});
+    addConnection(n2.id,n4.id);
+
+    const mat=d.material_texture||{};
+    let matC='';
+    if(mat.surfaces) matC+=`<b>材质</b> ${mat.surfaces}\n\n`;
+    if(mat.atmosphere) matC+=`<b>氛围</b> ${mat.atmosphere}\n\n`;
+    if(mat.color_grading) matC+=`<b>调色</b> ${mat.color_grading}`;
+    const n5 = createNode({type:'analysis',title:'🧱 材质 & 调色',badge:'MATERIAL',badgeClass:'badge-analysis',content:matC,x:col2,y:sy+440,rawData:Object.values(mat).filter(Boolean).join('\n'),section:'material'});
+    addConnection(n4.id,n5.id);
+
+    // Column 3 — Prompts
+    const pr=d.prompts||{};
+    let prC = '';
+    if(pr.level_1) prC+=`<div class="prompt-block"><span class="prompt-label pl-1">L1 精简</span>\n${pr.level_1}</div>`;
+    if(pr.level_2) prC+=`<div class="prompt-block"><span class="prompt-label pl-2">L2 标准</span>\n${pr.level_2}</div>`;
+    if(pr.level_3) prC+=`<div class="prompt-block"><span class="prompt-label pl-3">L3 专业</span>\n${pr.level_3}</div>`;
+    const n6 = createNode({type:'analysis',title:'✨ 可复刻提示词',badge:'PROMPT',badgeClass:'badge-prompt',content:prC,x:col3,y:sy+60,rawData:`[L1]\n${pr.level_1||''}\n\n[L2]\n${pr.level_2||''}\n\n[L3]\n${pr.level_3||''}`,section:'prompt'});
+    addConnection(n3.id,n6.id);
+    addConnection(n4.id,n6.id);
+    addConnection(n5.id,n6.id);
+
+    drawConnections();
+}
+
+// ----- API CALLS -----
+async function callGemini(config,lang){
+    const m=config.geminiModel||'gemini-2.5-flash';
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${config.geminiKey}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:SYS+lang+'\n\nAnalyze this film still. ONLY JSON, no fences.'},{inline_data:{mime_type:imgMime,data:imgData}}]}],generationConfig:{temperature:0.4,topP:0.95,maxOutputTokens:8192,responseMimeType:"application/json"}})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||`Gemini ${r.status}`);}
+    const d=await r.json();const t=d.candidates?.[0]?.content?.parts?.[0]?.text;if(!t)throw new Error('Empty');return pJSON(t);
+}
+async function callByteplus(config,lang){
+    const r=await fetch('https://ark.ap-southeast.bytepluses.com/api/v3/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+config.byteplusKey},body:JSON.stringify({model:config.byteplusEp,messages:[{role:'system',content:SYS+lang},{role:'user',content:[{type:'text',text:'Analyze. ONLY JSON.'},{type:'image_url',image_url:{url:`data:${imgMime};base64,${imgData}`}}]}],temperature:0.4,max_tokens:8192})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||`BytePlus ${r.status}`);}
+    const d=await r.json();const t=d.choices?.[0]?.message?.content;if(!t)throw new Error('Empty');return pJSON(t);
+}
+function pJSON(t){try{return JSON.parse(t)}catch{}const m=t.match(/```(?:json)?\s*([\s\S]*?)```/);if(m)try{return JSON.parse(m[1])}catch{}const s=t.indexOf('{'),e=t.lastIndexOf('}');if(s!==-1&&e!==-1)try{return JSON.parse(t.slice(s,e+1))}catch{}throw new Error('JSON parse failed');}
+
+// ----- NODE ACTIONS -----
+window.copyNodeContent = function(id){
+    const n=nodes.find(n=>n.id===id);if(!n)return;
+    const text = n.rawData || n.el.querySelector('.node-content')?.textContent || '';
+    navigator.clipboard.writeText(text).then(()=>toast('已复制'));
+};
+window.removeNode = function(id){
+    const idx=nodes.findIndex(n=>n.id===id);if(idx===-1)return;
+    nodes[idx].el?.remove(); nodes.splice(idx,1);
+    connections=connections.filter(c=>c.from!==id&&c.to!==id);
+    drawConnections();
+};
+window.saveNodeToLib = function(id){
+    const n=nodes.find(n=>n.id===id);if(!n)return;
+    document.getElementById('saveName').value = n.title.replace(/[^\w\s\u4e00-\u9fff&]/g,'').trim();
+    const catMap={camera:'camera',lighting:'lighting',material:'color',prompt:'full'};
+    document.getElementById('saveCat').value = catMap[n.section]||'full';
+    document.getElementById('saveContent').value = n.rawData || n.el.querySelector('.node-content')?.textContent || '';
+    document.getElementById('saveModal').classList.add('open');
+};
+
+// ----- STYLE LIBRARY with CATEGORY SECTIONS -----
+const CAT_ORDER = ['camera','lighting','color','atmosphere','full'];
+const CAT_META = {
+    camera: {label:'📷 摄影机 / 镜头', color:'var(--amber)'},
+    lighting: {label:'💡 灯光', color:'var(--green)'},
+    color: {label:'🎨 色调', color:'var(--purple)'},
+    atmosphere: {label:'🌫 氛围', color:'var(--cyan)'},
+    full: {label:'📋 完整提示词', color:'var(--pink)'}
+};
+
+function getLib(){return JSON.parse(localStorage.getItem('cineprompt_library')||'[]');}
+function setLib(l){localStorage.setItem('cineprompt_library',JSON.stringify(l));}
+
+function renderLib(){
+    const lib=getLib();
+    const list=document.getElementById('libList');
+    if(!lib.length){
+        list.innerHTML='<div class="lib-empty">风格库为空<br><span style="font-size:11px;color:var(--text-dim)">在拆解结果节点中点击「存入风格库」</span></div>';
+        return;
+    }
+
+    // Group by category
+    const groups = {};
+    lib.forEach((item,i)=>{
+        const cat = item.category || 'full';
+        if(!groups[cat]) groups[cat] = [];
+        groups[cat].push({...item, _idx:i});
+    });
+
+    let html = '';
+    CAT_ORDER.forEach(cat=>{
+        const items = groups[cat];
+        if(!items || !items.length) return;
+        const meta = CAT_META[cat] || {label:cat, color:'var(--text-dim)'};
+        html += `<div class="lib-cat-section">
+            <div class="lib-cat-title">
+                <span>${meta.label}</span>
+                <span class="lib-cat-count">${items.length}</span>
+            </div>`;
+        items.forEach(p=>{
+            html += `<div class="lib-item">
+                <div class="lib-item-name">${esc(p.name)}</div>
+                <div class="lib-item-content">${esc(p.content)}</div>
+                <div class="lib-item-actions">
+                    <button onclick="copyLib(${p._idx})">复制</button>
+                    <button onclick="delLib(${p._idx})">删除</button>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+    });
+
+    list.innerHTML = html;
+}
+
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+window.copyLib=function(i){const l=getLib();if(l[i])navigator.clipboard.writeText(l[i].content).then(()=>toast('已复制'));};
+window.delLib=function(i){const l=getLib();l.splice(i,1);setLib(l);renderLib();toast('已删除');};
+
+document.getElementById('btnLibrary').addEventListener('click',()=>{renderLib();document.getElementById('libPanel').classList.toggle('open');});
+document.getElementById('libClose').addEventListener('click',()=>document.getElementById('libPanel').classList.remove('open'));
+
+// Import library
+document.getElementById('libImport').addEventListener('click',()=>document.getElementById('importInput').click());
+document.getElementById('importInput').addEventListener('change', e => {
+    const f = e.target.files[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+        try {
+            const imported = JSON.parse(ev.target.result);
+            if(!Array.isArray(imported)) throw new Error('Invalid');
+            const lib = getLib();
+            const merged = [...imported, ...lib];
+            setLib(merged);
+            renderLib();
+            toast(`已导入 ${imported.length} 条`);
+        } catch(err) { toast('导入失败: 格式无效','error'); }
+    };
+    reader.readAsText(f);
+    e.target.value = '';
+});
+
+// Save modal
+document.getElementById('saveCancel').addEventListener('click',()=>document.getElementById('saveModal').classList.remove('open'));
+document.getElementById('saveModal').addEventListener('click',e=>{if(e.target.id==='saveModal')e.target.classList.remove('open');});
+document.getElementById('saveConfirm').addEventListener('click',()=>{
+    const name=document.getElementById('saveName').value.trim();
+    const content=document.getElementById('saveContent').value.trim();
+    if(!name||!content){toast('名称和内容不能为空','error');return;}
+    const lib=getLib();
+    lib.unshift({name,category:document.getElementById('saveCat').value,content,createdAt:new Date().toISOString()});
+    setLib(lib);document.getElementById('saveModal').classList.remove('open');toast('已存入风格库');renderLib();
+});
+
+// Export
+document.getElementById('btnExport').addEventListener('click',()=>{
+    const lib=getLib();if(!lib.length){toast('风格库为空','error');return;}
+    const b=new Blob([JSON.stringify(lib,null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='cineprompt_styles.json';a.click();toast('已导出');
+});
+
+// ----- SETTINGS -----
+document.getElementById('btnSettings').addEventListener('click',()=>{loadCfg();document.getElementById('settingsModal').classList.add('open');});
+document.getElementById('settingsCancel').addEventListener('click',()=>document.getElementById('settingsModal').classList.remove('open'));
+document.getElementById('settingsModal').addEventListener('click',e=>{if(e.target.id==='settingsModal')e.target.classList.remove('open');});
+document.querySelectorAll('.ptab').forEach(t=>t.addEventListener('click',()=>{
+    document.querySelectorAll('.ptab').forEach(x=>x.classList.remove('active'));t.classList.add('active');
+    provider=t.dataset.p;
+    document.getElementById('geminiForm').style.display=provider==='gemini'?'':'none';
+    document.getElementById('byteplusForm').style.display=provider==='byteplus'?'':'none';
+}));
+document.getElementById('settingsSave').addEventListener('click',()=>{
+    const c={provider,geminiKey:document.getElementById('geminiKey').value,geminiModel:document.getElementById('geminiModel').value,byteplusKey:document.getElementById('byteplusKey').value,byteplusEp:document.getElementById('byteplusEp').value,outputLang:document.getElementById('outputLang').value};
+    localStorage.setItem('cineprompt_config',JSON.stringify(c));
+    document.getElementById('settingsModal').classList.remove('open');toast('配置已保存');
+});
+function loadCfg(){
+    const s=localStorage.getItem('cineprompt_config');if(!s)return;const c=JSON.parse(s);
+    provider=c.provider||'gemini';
+    document.getElementById('geminiKey').value=c.geminiKey||'';
+    document.getElementById('geminiModel').value=c.geminiModel||'gemini-2.5-flash';
+    document.getElementById('byteplusKey').value=c.byteplusKey||'';
+    document.getElementById('byteplusEp').value=c.byteplusEp||'';
+    document.getElementById('outputLang').value=c.outputLang||'en';
+    document.querySelectorAll('.ptab').forEach(t=>t.classList.toggle('active',t.dataset.p===provider));
+    document.getElementById('geminiForm').style.display=provider==='gemini'?'':'none';
+    document.getElementById('byteplusForm').style.display=provider==='byteplus'?'':'none';
+}
+
+// Reset canvas
+document.getElementById('btnReset').addEventListener('click',()=>{
+    nodes.forEach(n=>{if(n.el)n.el.remove();});
+    nodes=[];connections=[];nextId=1;imgData=null;imgMime=null;
+    connSvg.innerHTML='';
+    pan={x:0,y:0};zoom=1;applyTransform();zoomInfo.textContent='100%';
+    initCanvas();
+});
+
+// ----- INIT -----
+function initCanvas(){
+    createNode({type:'source',title:'Source',badge:'SOURCE',badgeClass:'badge-source',x:80,y:200});
+}
+initCanvas();
+
+// ----- TOAST -----
+function toast(m,t){
+    const e=document.querySelector('.toast');if(e)e.remove();
+    const d=document.createElement('div');d.className='toast '+(t||'');d.textContent=m;document.body.appendChild(d);
+    requestAnimationFrame(()=>d.classList.add('show'));
+    setTimeout(()=>{d.classList.remove('show');setTimeout(()=>d.remove(),300);},2500);
+}
+</script>
+</body>
+</html>
